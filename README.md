@@ -1,6 +1,6 @@
-# Lane Procurement AI Agent
+# LLM Query Engine
 
-A schema-aware Text-to-SQL agent that lets operations teams query freight data in plain English. Built with Claude (Anthropic), LangGraph, SQLGlot, PostgreSQL, and Streamlit.
+A schema-aware Text-to-SQL agent that lets operations teams query structured data in plain English. Built with Claude (Anthropic), LangGraph, SQLGlot, PostgreSQL, and Streamlit.
 
 **Key reliability mechanism:** SQL is validated before it touches the database, and if validation or execution fails, the exact error is fed back to the model for a targeted retry — pushing first-pass accuracy from ~70% to 95%+.
 
@@ -8,7 +8,7 @@ A schema-aware Text-to-SQL agent that lets operations teams query freight data i
 
 ## Demo
 
-![Architecture](https://raw.githubusercontent.com/siddharth-01/lane-procurement-agent/main/docs/architecture.png)
+![Architecture](https://raw.githubusercontent.com/siddharth-01/llm-query-engine/main/docs/architecture.png)
 
 Ask questions like:
 - *"What was the average rate by carrier in 2025?"*
@@ -93,8 +93,8 @@ Actual freight records, rates, and carrier data never leave your infrastructure.
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/siddharth-01/lane-procurement-agent.git
-cd lane-procurement-agent
+git clone https://github.com/siddharth-01/llm-query-engine.git
+cd llm-query-engine
 
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 
 ### 2. Seed the database
 
-Create a database and load the synthetic freight data:
+Create a database and load the synthetic structured operational data:
 
 ```bash
 # Create database
