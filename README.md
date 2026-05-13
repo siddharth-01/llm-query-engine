@@ -1,20 +1,16 @@
 # LLM Query Engine
 
-A schema-aware Text-to-SQL agent that lets operations teams query structured data in plain English. Built with Claude (Anthropic), LangGraph, SQLGlot, PostgreSQL, and Streamlit.
+A schema-aware Text-to-SQL agent that lets users query relational databases in plain English. Built with Claude (Anthropic), LangGraph, SQLGlot, PostgreSQL, and Streamlit.
 
 **Key reliability mechanism:** SQL is validated before it touches the database, and if validation or execution fails, the exact error is fed back to the model for a targeted retry — pushing first-pass accuracy from ~70% to 95%+.
 
 ---
 
-## Demo
+## How It Works
 
-![Architecture](https://raw.githubusercontent.com/siddharth-01/llm-query-engine/main/docs/architecture.png)
+Users type a natural language question. The agent generates a PostgreSQL SELECT statement, validates it statically, executes it against the database, and returns a result table — all without the user writing any SQL.
 
-Ask questions like:
-- *"What was the average rate by carrier in 2025?"*
-- *"Top 10 lanes out of Chicago by volume, with average rate and most-used carrier"*
-- *"Compare LTL hazmat performance against regular LTL across our top facilities"*
-- *"Which carriers improved their average rate the most quarter-over-quarter?"*
+If the generated SQL fails validation or execution, the exact error is injected back into the next prompt so the model corrects the specific mistake rather than starting from scratch.
 
 ---
 
@@ -30,7 +26,7 @@ load_schema → generate_sql → validate_sql → execute_sql → END
                            END
 ```
 
-### How each node works
+### Nodes
 
 | Node | What it does |
 |------|-------------|
@@ -39,30 +35,29 @@ load_schema → generate_sql → validate_sql → execute_sql → END
 | `validate_sql` | Parses with SQLGlot. Rejects non-SELECT, unknown tables, hallucinated columns. Zero DB calls. |
 | `execute_sql` | Runs validated SQL against Postgres. Captures any execution error. |
 
-### Why the retry loop works
+### Retry loop
 
-On failure, the prompt sent to Claude includes:
+On failure, the prompt includes:
 
 ```
 ## Previous attempt failed
 
-Error: Column(s) do not exist: {'is_hazmat'}. Hazmat is encoded in
-rate_type ('Van Haz', 'LTL Haz') — there is no is_hazmat column.
+Error: <exact error from validator or database>
 
 Fix the specific issue above and produce a corrected SELECT.
 ```
 
 The model corrects the specific mistake instead of guessing. This targeted feedback is what drives the accuracy improvement over a naive retry.
 
-### Why no data is sent to Claude
+### Data privacy
 
-Claude only receives:
-- Column names, types, and plain-English descriptions (~500 tokens)
+The LLM only receives:
+- Column names, types, and plain-English descriptions
 - Business rules and domain hints
 - The user's natural language question
 - The exact error message on retry
 
-Actual freight records, rates, and carrier data never leave your infrastructure. This matters for enterprise deployments with sensitive pricing data.
+Actual row data never leaves your infrastructure.
 
 ---
 
@@ -74,7 +69,7 @@ Actual freight records, rates, and carrier data never leave your infrastructure.
 ├── prompts.py        # System + user prompt builders
 ├── schema_store.py   # Static schema context + validation allow-lists
 ├── data/
-│   └── synthetic_freight.csv   # 8,500 synthetic freight records for seeding
+│   └── synthetic_freight.csv   # Sample dataset for local development
 ├── requirements.txt
 ├── .env.example
 └── README.md
@@ -104,47 +99,19 @@ pip install -r requirements.txt
 
 ### 2. Seed the database
 
-Create a database and load the synthetic structured operational data:
-
 ```bash
-# Create database
-psql -U postgres -c "CREATE DATABASE freight_demo;"
+psql -U postgres -c "CREATE DATABASE mydb;"
 
-# Load CSV into freight table
-psql -U postgres -d freight_demo << 'EOF'
-CREATE TABLE IF NOT EXISTS freight (
-    id                 INTEGER,
-    origin_city        TEXT,
-    origin_state       TEXT,
-    origin_country     TEXT,
-    origin_zip_code    TEXT,
-    dest_city          TEXT,
-    dest_state         TEXT,
-    dest_country       TEXT,
-    dest_zip_code      TEXT,
-    rate_type          TEXT,
-    pallet             INTEGER,
-    weight             NUMERIC,
-    commodity          TEXT,
-    user_id_requested  INTEGER,
-    rate               NUMERIC,
-    carrier            INTEGER,
-    carrier_name       TEXT,
-    date_requested     TIMESTAMP,
-    date_completed     TIMESTAMP,
-    user_id_completed  INTEGER,
-    note_completed     TEXT,
-    facility_code      TEXT,
-    note_request       TEXT,
-    ship_date          DATE,
-    lane_or_quote      TEXT,
-    ltl_flags          TEXT,
-    carrier_active     SMALLINT
+psql -U postgres -d mydb << 'EOF'
+CREATE TABLE IF NOT EXISTS my_table (
+    -- define your columns here
 );
 
-\COPY freight FROM 'data/synthetic_freight.csv' WITH (FORMAT csv, HEADER true);
+\COPY my_table FROM 'data/your_data.csv' WITH (FORMAT csv, HEADER true);
 EOF
 ```
+
+A sample dataset is included in `data/synthetic_freight.csv` for local development and testing.
 
 ### 3. Configure environment
 
@@ -156,65 +123,56 @@ Edit `.env`:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...your-key...
-DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/freight_demo
+DATABASE_URL=postgresql://postgres:yourpassword@localhost:5432/mydb
 ```
 
-### 4. Run
+### 4. Adapt the schema store
+
+Edit `schema_store.py` to describe your table — column names, types, plain-English descriptions, and any domain-specific rules the model should know. This is what makes the agent accurate for your specific data.
+
+### 5. Run
 
 ```bash
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. Use the sidebar example questions or type your own.
+Opens at `http://localhost:8501`.
 
 ---
 
-## Data
+## Adapting to Your Domain
 
-`data/synthetic_freight.csv` contains 8,500 synthetic freight records with realistic lane, carrier, rate, and shipment data. Safe to use for demos and development — no real business data.
+The agent is domain-agnostic. To point it at a different database:
 
-### Schema overview
+1. **Update `schema_store.py`** — describe your table's columns and add business rules (e.g. which columns encode categorical flags, how to group, how to handle nulls)
+2. **Update `ALLOWED_TABLES` and `ALLOWED_COLUMNS`** in `schema_store.py` — the validator uses these to reject hallucinated references
+3. **Update example questions** in `app.py` sidebar to match your domain
+4. Point `DATABASE_URL` at your database
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | integer | Primary key |
-| `origin_city` / `origin_state` | text | Origin location |
-| `dest_city` / `dest_state` | text | Destination location |
-| `rate_type` | text | `Van`, `Dump`, `Van Haz`, `LTL`, `LTL Haz`, `Flatbed` |
-| `weight` | numeric | Shipment weight in pounds |
-| `rate` | numeric | All-in rate in USD |
-| `carrier_name` | text | Human-readable carrier name |
-| `date_requested` | timestamp | When the quote was created |
-| `lane_or_quote` | text | `lane` = booked, `quote` = priced only |
-| `carrier_active` | smallint | 1 = active carrier, 0 = inactive |
-
-**Important domain rules:**
-- No `is_hazmat` column — hazmat is encoded in `rate_type` as `'Van Haz'` or `'LTL Haz'`
-- Always `GROUP BY carrier_name`, never by the integer `carrier` id
-- Use `date_trunc('quarter', date_requested)` for quarter-over-quarter comparisons
+No changes needed to `agent.py`, `prompts.py`, or the graph structure.
 
 ---
 
 ## Key Design Decisions
 
-**Schema store separate from prompts** — schema iteration (adding columns, refining descriptions) doesn't require touching the graph orchestration code.
+**Schema store separate from prompts** — domain context can be updated without touching orchestration code.
 
-**Validation before execution** — SQLGlot catches bad SQL with a structured error before paying for a database round-trip. Also blocks accidental writes — only SELECT statements pass.
+**Validation before execution** — SQLGlot catches bad SQL cheaply before a DB round-trip. Also enforces SELECT-only — no writes, deletes, or DDL can reach the database.
 
-**Retry with error context** — the single biggest reliability improvement. A raw LLM call gets SQL right ~70% of the time on a moderately complex schema. With retry-with-error-context, that rises to 95%+ in practice.
+**Retry with error context** — the single biggest reliability improvement. Raw LLM SQL generation is ~70% accurate on moderately complex schemas. With retry-with-error-context, that rises to 95%+.
 
-**LangGraph over plain function chaining** — provides first-class state management, conditional edges, and a full attempt trace visible in the UI. Worth the dependency for any flow with more than one LLM call.
+**LangGraph over plain function chaining** — first-class state management, conditional edges, and a full attempt trace visible in the UI.
 
 ---
 
 ## Production Roadmap
 
-- Dynamic schema retrieval from `information_schema` (vs. static dict) for multi-table databases
+- Dynamic schema retrieval from `information_schema` for multi-table databases
 - Query result cache keyed by question + schema version
 - Per-user rate limits and request audit logging
 - Streaming results for large response sets
-- Clarifying question node for ambiguous user prompts
-- Eval harness with curated question/SQL pairs (pytest-style) to measure accuracy over time
+- Clarifying question node for ambiguous prompts
+- Eval harness with curated question/SQL pairs to measure accuracy over time
 - Telemetry: token usage, latency per node, retry rate, validator-fail-rate
 
 ---
