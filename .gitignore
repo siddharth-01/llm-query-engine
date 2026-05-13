@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.egg-info/
+dist/
+build/
+node_modules/
+gen_slide.js
+lane_demo_overview.pptx
+slide-*.jpg
+lane_demo_overview.pdf
