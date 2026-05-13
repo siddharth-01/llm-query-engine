@@ -40,20 +40,21 @@ with st.sidebar:
     st.markdown("### Example questions")
     for ex in EXAMPLES:
         if st.button(ex, key=f"ex::{ex}", use_container_width=True):
-            st.session_state["question"] = ex
+            st.session_state["question_input"] = ex
+            st.session_state["auto_run"] = True
     st.markdown("---")
     st.caption("Model: `claude-sonnet-4-6` · Validator: SQLGlot · Max attempts: 3")
 
 
 question = st.text_area(
     "Ask a question about the freight data:",
-    value=st.session_state.get("question", ""),
     height=80,
     key="question_input",
 )
 run = st.button("Run", type="primary", disabled=not question.strip())
+auto_run = st.session_state.pop("auto_run", False)
 
-if run and question.strip():
+if (run or auto_run) and question.strip():
     t0 = time.time()
     with st.status("Running agent…", expanded=True) as status:
         st.write("→ loading schema context")
